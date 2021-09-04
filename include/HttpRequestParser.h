@@ -1,7 +1,7 @@
 /*
  * @Author: dylan
  * @Date: 2021-09-03 16:01:31
- * @LastEditTime: 2021-09-03 23:15:04
+ * @LastEditTime: 2021-09-04 21:55:45
  * @LastEditors: dylan
  * @Description: 
  * @FilePath: /TinyHTTPParser/include/HttpRequestParser.h
@@ -20,7 +20,7 @@ enum class ParseResult {
 class HttpRequestParser {
 public:
     explicit HttpRequestParser()
-        : m_currentState(ParseState::ParseStart) {
+        : m_currentState(ParseState::ParseStart), m_isChunked(false) {
     }
     ParseResult parse(HttpRequest& httpRequest, char* bufferBegin, char* bufferEnd);
     void reset();
@@ -53,12 +53,27 @@ private:
         Headers_LineFeed,
 
         BlankLine_Carriage,
-        BlankLine_LineFeed 
+        BlankLine_LineFeed,
+
+        Body_Content,
+
+        Body_ChunkSize,
+        Body_ChunkSizeCarriage,
+        Body_ChunkSizeLineFeed,
+        Body_ChunkData,
+        Body_ChunkDataCarriage,
+        Body_ChunkDataLineFeed,
+        Body_ChunkEndCarriage,
+        Body_ChunkEndLineFeed
     };
 
-    ParseState  m_currentState;
-    std::string m_headerKeyBuffer;
-    std::string m_headerValueBuffer;
+    ParseState     m_currentState;
+    std::string    m_headerKeyBuffer;
+    std::string    m_headerValueBuffer;
+    unsigned long  m_contentLength;
+    bool           m_isChunked;
+    std::string    m_chunkSizeBuffer;
+    unsigned long  m_chunkSize;
 };
 
 #endif /* HTTP_REQUEST_PARSER_H */

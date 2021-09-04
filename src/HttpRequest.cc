@@ -1,7 +1,7 @@
 /*
  * @Author: dylan
  * @Date: 2021-09-03 15:45:53
- * @LastEditTime: 2021-09-03 23:29:12
+ * @LastEditTime: 2021-09-04 22:58:46
  * @LastEditors: dylan
  * @Description: 
  * @FilePath: /TinyHTTPParser/src/HttpRequest.cc
@@ -15,6 +15,7 @@ void HttpRequest::dump() const {
     for (auto& item : m_headers) {
         std::cout << item.first << ": "  << item.second << "\n";
     }
+    std::cout << m_content << "\n";
 }
 
 std::string HttpRequest::method() const {

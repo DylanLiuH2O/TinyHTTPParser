@@ -1,12 +1,13 @@
 /*
  * @Author: dylan
  * @Date: 2021-09-03 16:01:41
- * @LastEditTime: 2021-09-03 23:37:07
+ * @LastEditTime: 2021-09-04 23:12:35
  * @LastEditors: dylan
  * @Description: 
  * @FilePath: /TinyHTTPParser/src/HttpRequestParser.cc
  */
 #include <cctype>
+#include <exception>
 #include "../include/HttpRequestParser.h"
 
 ParseResult HttpRequestParser::parse(HttpRequest& httpRequest, char* bufferBegin, char* bufferEnd) {
@@ -189,12 +190,124 @@ ParseResult HttpRequestParser::parse(HttpRequest& httpRequest, char* bufferBegin
                 break;
             case ParseState::BlankLine_Carriage:
                 if (ch == '\n') {
+                    const auto& headerKeepAliveIt = httpRequest.m_headers.find("Keep-Alive");
+                    if (headerKeepAliveIt != httpRequest.m_headers.end()) {
+                        httpRequest.m_keepAlive = (headerKeepAliveIt->second == "ture" ? true : false);
+                    }
+                    if (httpRequest.m_method == "POST") {
+                        const auto& headerContentLengthIt = httpRequest.m_headers.find("Content-Length");
+                        const auto& headerTransferEncodingIt = httpRequest.m_headers.find("Transfer-Encoding");
+
+                        if (headerContentLengthIt != httpRequest.m_headers.end()) {
+                            try {
+                                m_contentLength = std::stoul(headerContentLengthIt->second);
+                            } catch (std::invalid_argument) {
+                                return ParseResult::ParseError;
+                            } catch (std::out_of_range) {
+                                return ParseResult::ParseError;
+                            }
+                            m_currentState = ParseState::Body_Content;
+                        } else if (headerTransferEncodingIt != httpRequest.m_headers.end()) {
+                            if (headerTransferEncodingIt->second == "Chunked") {
+                                m_isChunked = true;
+                                m_currentState = ParseState::Body_ChunkSize;
+                            } else {
+                                m_currentState = ParseState::Body_Content;
+                            }
+                        }
+                    } else {
+                        return ParseResult::ParseSuccess;
+                    }
+                } else {
+                    return ParseResult::ParseError;
+                }
+                break;
+            case ParseState::Body_Content:
+                if (std::iscntrl(ch) == 0) {
+                    httpRequest.m_content.push_back(ch);
+                    if (httpRequest.m_content.length() >= m_contentLength) {
+                        return ParseResult::ParseSuccess;
+                    }
+                } else {
+                    return ParseResult::ParseError;
+                }
+                break;
+            case ParseState::Body_ChunkSize:
+                if (ch == '\r') {
+                    try {
+                        m_chunkSize = std::stoul(m_chunkSizeBuffer, nullptr, 16);
+                    } catch (std::invalid_argument) {
+                        std::cerr << "invalid_arguement" << std::endl;
+                        return ParseResult::ParseError;
+                    } catch (std::out_of_range) {
+                        std::cerr << "out_of_range" << std::endl;
+                        return ParseResult::ParseError;
+                    }
+                    m_chunkSizeBuffer.clear();
+                    m_currentState = ParseState::Body_ChunkSizeCarriage;
+                } else if (std::isalnum(ch) != 0) {
+                    m_chunkSizeBuffer.push_back(ch);
+                } else {
+                    return ParseResult::ParseError;
+                }
+                break;
+            case ParseState::Body_ChunkSizeCarriage:
+                if (ch == '\n') {
+                    m_currentState = ParseState::Body_ChunkSizeLineFeed;
+                } else {
+                    return ParseResult::ParseError;
+                }
+                break;
+            case ParseState::Body_ChunkSizeLineFeed:
+                if (ch == '\r') {
+                    if (m_chunkSize == 0) {
+                        m_currentState = ParseState::Body_ChunkEndCarriage;
+                    } else {
+                        return ParseResult::ParseError;
+                    }
+                } else if (std::iscntrl(ch) == 0) {
+                    m_currentState = ParseState::Body_ChunkData;
+                    httpRequest.m_content.push_back(ch);
+                } else {
+                    return ParseResult::ParseError;
+                }
+                break;
+            case ParseState::Body_ChunkData:
+                if (ch == '\r') {
+                    m_currentState = ParseState::Body_ChunkDataCarriage;
+                } else if (std::iscntrl(ch) == 0) {
+                    httpRequest.m_content.push_back(ch);
+                } else {
+                    return ParseResult::ParseError;
+                }
+                break;
+            case ParseState::Body_ChunkDataCarriage:
+                if (ch == '\n') {
+                    m_currentState = ParseState::Body_ChunkDataLineFeed;
+                } else {
+                    return ParseResult::ParseError;
+                }
+                break;
+            case ParseState::Body_ChunkDataLineFeed:
+                if (std::isalnum(ch) != 0) {
+                    m_chunkSizeBuffer.push_back(ch);
+                    m_currentState = ParseState::Body_ChunkSize;
+                } else {
+                    return ParseResult::ParseError;
+                }
+                break;
+            case ParseState::Body_ChunkEndCarriage:
+                if (ch == '\n') {
+                    m_currentState = ParseState::Body_ChunkEndLineFeed;
                     return ParseResult::ParseSuccess;
                 } else {
                     return ParseResult::ParseError;
                 }
                 break;
+            case ParseState::Body_ChunkEndLineFeed:
+                break;
             default:
+                return ParseResult::ParseError;
                 break;
         }
         charPtr++;
@@ -207,4 +320,8 @@ void HttpRequestParser::reset() {
     m_currentState = ParseState::ParseStart;
     m_headerKeyBuffer.clear();
     m_headerValueBuffer.clear();
+    m_contentLength = 0;
+    m_isChunked = false;
+    m_chunkSize = 0;
+    m_chunkSizeBuffer.clear();
 }
